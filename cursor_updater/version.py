@@ -8,7 +8,7 @@ from typing import Optional
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 
-from config import (
+from cursor_updater.config import (
     CACHE_FILE,
     CACHE_MAX_AGE,
     VERSION_HISTORY_URL,
@@ -132,7 +132,9 @@ def get_platform_versions(version_history: dict) -> list[str]:
     try:
         versions = version_history.get("versions", [])
         return [
-            v["version"] for v in versions if v.get("platforms", {}).get(platform_name)
+            v["version"]
+            for v in versions
+            if v.get("platforms", {}).get(platform_name)
         ]
     except (KeyError, ValueError):
         return []
@@ -209,3 +211,4 @@ def get_version_status() -> VersionInfo:
         latest_local=get_latest_local_version(),
         latest_remote=get_latest_remote_version(),
     )
+

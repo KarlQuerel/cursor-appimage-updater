@@ -1,8 +1,7 @@
-#!/usr/bin/env python3
-"""Simple Cursor AppImage Updater for Linux"""
+"""Main entry point for Cursor Updater."""
 
-from config import DOWNLOADS_DIR
-from ui import (
+from cursor_updater.config import DOWNLOADS_DIR
+from cursor_updater.ui import (
     clear_screen,
     print_header,
     print_menu,

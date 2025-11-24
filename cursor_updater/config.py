@@ -50,3 +50,4 @@ MENU_OPTIONS = {
 MSG_WAIT_KEY = "Press any key to return to menu..."
 MSG_EXITING = "Exiting..."
 MSG_INVALID_CHOICE = "❌ Invalid choice: '{}'. Please press 1, 2, 3, or 4."
+

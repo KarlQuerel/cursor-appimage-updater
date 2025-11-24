@@ -1,6 +1,6 @@
 """Output formatting and printing utilities."""
 
-from config import BOLD, GREEN, RED, NC
+from cursor_updater.config import BOLD, GREEN, RED, NC
 
 
 def format_message(message: str, color: str = "") -> str:
@@ -21,3 +21,4 @@ def print_success(message: str) -> None:
 def print_info(message: str) -> None:
     """Print an info message in bold."""
     print(format_message(message))
+

@@ -5,15 +5,15 @@ from pathlib import Path
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 
-from config import (
+from cursor_updater.config import (
     DOWNLOADS_DIR,
     ACTIVE_SYMLINK,
     CHUNK_SIZE,
     DOWNLOAD_TIMEOUT,
     USER_AGENT,
 )
-from version import get_download_url
-from output import print_error, print_success, print_info
+from cursor_updater.version import get_download_url
+from cursor_updater.output import print_error, print_success, print_info
 
 
 def get_appimage_path(version: str) -> Path:
@@ -112,3 +112,4 @@ def select_version(version: str) -> bool:
 
     print_error(f"Failed to activate {version}")
     return False
+

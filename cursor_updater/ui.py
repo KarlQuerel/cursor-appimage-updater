@@ -7,7 +7,7 @@ import termios
 import time
 import tty
 
-from config import (
+from cursor_updater.config import (
     BOLD_BLUE,
     GREEN,
     RED,
@@ -22,15 +22,15 @@ from config import (
     ACTIVE_SYMLINK,
     CACHE_FILE,
 )
-from version import (
+from cursor_updater.version import (
     VersionInfo,
     get_version_status,
     get_latest_remote_version,
     get_latest_local_version,
     get_platform,
 )
-from download import download_version, select_version
-from output import format_message, print_error
+from cursor_updater.download import download_version, select_version
+from cursor_updater.output import format_message, print_error
 
 
 def getch() -> str:
@@ -82,7 +82,11 @@ def print_version_info(info: VersionInfo) -> None:
     print(format_message("Cursor App Information:"))
 
     if not info.latest_remote:
-        print(format_message(f"{'  - 📡 Latest remote version:':<33} (unavailable)"))
+        print(
+            format_message(
+                f"{'  - 📡 Latest remote version:':<33} (unavailable)"
+            )
+        )
         return
 
     prefix_width = 33
@@ -237,3 +241,4 @@ def get_user_choice() -> str:
     choice = choice.strip().lower()
     print(choice)
     return choice
+
