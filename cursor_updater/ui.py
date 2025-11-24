@@ -51,9 +51,14 @@ def clear_screen() -> None:
 
 def print_header() -> None:
     """Print the application header."""
-    print(format_message("╔═════════════════════════════════╗", BOLD_BLUE))
-    print(format_message("║   ⚙️     CURSOR UPDATER     ⚙️    ║", BOLD_BLUE))
-    print(format_message("╚═════════════════════════════════╝", BOLD_BLUE))
+    header_art = [
+        "   ▄▖▖▖▄▖▄▖▄▖▄▖  ▖▖▄▖▄ ▄▖▄▖▄▖▄▖",
+        "   ▌ ▌▌▙▘▚ ▌▌▙▘  ▌▌▙▌▌▌▌▌▐ ▙▖▙▘",
+        "   ▙▖▙▌▌▌▄▌▙▌▌▌  ▙▌▌ ▙▘▛▌▐ ▙▖▌▌",
+    ]
+    for line in header_art:
+        print(format_message(line, BOLD_BLUE))
+    print()
 
 
 def print_menu() -> None:
@@ -82,11 +87,7 @@ def print_version_info(info: VersionInfo) -> None:
     print(format_message("Cursor App Information:"))
 
     if not info.latest_remote:
-        print(
-            format_message(
-                f"{'  - 📡 Latest remote version:':<33} (unavailable)"
-            )
-        )
+        print(format_message(f"{'  - 📡 Latest remote version:':<33} (unavailable)"))
         return
 
     prefix_width = 33
@@ -241,4 +242,3 @@ def get_user_choice() -> str:
     choice = choice.strip().lower()
     print(choice)
     return choice
-
