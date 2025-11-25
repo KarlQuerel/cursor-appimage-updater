@@ -1,7 +1,9 @@
 """Version management and caching for Cursor Updater."""
 
 import json
+import os
 import platform
+import re
 import shutil
 import subprocess
 import tempfile
@@ -21,6 +23,7 @@ from cursor_updater.config import (
     VERSION_PATTERN,
     DOWNLOADS_DIR,
     CURSOR_APPIMAGE,
+    DESKTOP_FILE,
 )
 
 
@@ -152,8 +155,7 @@ def get_latest_remote_version() -> Optional[str]:
     if not platform_versions:
         return None
 
-    sorted_versions = sort_versions(platform_versions)
-    return sorted_versions[0]
+    return sort_versions(platform_versions)[0]
 
 
 def get_download_url(version: str) -> Optional[str]:
@@ -176,6 +178,23 @@ def get_download_url(version: str) -> Optional[str]:
     return None
 
 
+def _find_appimage_path_in_line(line: str) -> Optional[Path]:
+    """Extract AppImage path from a process line."""
+    matches = re.findall(r'(/[^\s]+cursor[^\s]*\.AppImage)', line)
+    for match in matches:
+        path = Path(match)
+        if path.exists():
+            return path.resolve()
+    
+    parts = line.split()
+    for part in parts:
+        if part.endswith(".AppImage") and "cursor" in part.lower():
+            path = Path(part)
+            if path.exists():
+                return path.resolve()
+    return None
+
+
 def get_running_cursor_path() -> Optional[Path]:
     """Find the path to the currently running Cursor executable from process list."""
     try:
@@ -187,31 +206,18 @@ def get_running_cursor_path() -> Optional[Path]:
         )
         for line in result.stdout.splitlines():
             if "cursor" in line.lower() and ".AppImage" in line:
-                parts = line.split()
-                for part in parts:
-                    if part.endswith(".AppImage") and "cursor" in part.lower():
-                        path = Path(part)
-                        if path.exists():
-                            return path.resolve()
+                if path := _find_appimage_path_in_line(line):
+                    return path
     except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
         pass
     return None
 
 
 def extract_version_from_appimage(appimage_path: Path) -> Optional[str]:
-    """Extract version from AppImage file (filename or embedded desktop file)."""
-    # First try to extract from filename
-    version = extract_version_from_filename(appimage_path.name)
-    if version:
-        return version
-
-    # Try to extract the AppImage and read the desktop file for exact version
+    """Extract version from AppImage file (package.json, desktop file, or filename)."""
     extract_dir = None
     try:
-        # Create temporary directory for extraction
         extract_dir = Path(tempfile.mkdtemp(prefix="cursor_version_"))
-
-        # Extract AppImage
         result = subprocess.run(
             [str(appimage_path), "--appimage-extract"],
             cwd=str(extract_dir),
@@ -221,7 +227,16 @@ def extract_version_from_appimage(appimage_path: Path) -> Optional[str]:
         )
 
         if result.returncode == 0:
-            # Look for desktop file
+            package_json_paths = list(extract_dir.glob("**/resources/app/package.json"))
+            for package_json_path in package_json_paths:
+                try:
+                    with open(package_json_path, "r", encoding="utf-8") as f:
+                        package_data = json.load(f)
+                        if version := package_data.get("version"):
+                            return version
+                except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+                    continue
+
             desktop_files = list(extract_dir.glob("**/*.desktop"))
             for desktop_file in desktop_files:
                 try:
@@ -237,14 +252,12 @@ def extract_version_from_appimage(appimage_path: Path) -> Optional[str]:
     except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
         pass
     finally:
-        # Clean up extracted files
         if extract_dir and extract_dir.exists():
             try:
                 shutil.rmtree(extract_dir)
             except OSError:
                 pass
 
-    # Fallback: try strings command as last resort
     try:
         result = subprocess.run(
             ["strings", str(appimage_path)],
@@ -252,8 +265,11 @@ def extract_version_from_appimage(appimage_path: Path) -> Optional[str]:
             text=True,
             timeout=10,
         )
-        # Look for X-AppImage-Version in strings output
         for line in result.stdout.splitlines():
+            if '"version"' in line and ':' in line:
+                match = re.search(r'"version"\s*:\s*"([0-9.]+)"', line)
+                if match:
+                    return match.group(1)
             if "X-AppImage-Version=" in line:
                 version = line.split("=", 1)[1].strip()
                 if version:
@@ -261,22 +277,18 @@ def extract_version_from_appimage(appimage_path: Path) -> Optional[str]:
     except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
         pass
 
-    return None
+    return extract_version_from_filename(appimage_path.name)
 
 
 def get_local_version() -> Optional[str]:
     """Get currently active local version from the actual Cursor AppImage."""
-    # Check the actual Cursor AppImage location
-    if CURSOR_APPIMAGE.exists():
-        version = extract_version_from_appimage(CURSOR_APPIMAGE)
-        if version:
-            return version
-
-    # Fallback: try to find running Cursor process
     running_path = get_running_cursor_path()
     if running_path:
-        version = extract_version_from_appimage(running_path)
-        if version:
+        if version := extract_version_from_appimage(running_path):
+            return version
+
+    if CURSOR_APPIMAGE.exists():
+        if version := extract_version_from_appimage(CURSOR_APPIMAGE):
             return version
 
     return None
@@ -289,18 +301,64 @@ def get_latest_local_version() -> Optional[str]:
 
     versions = []
     for appimage in DOWNLOADS_DIR.glob("cursor-*.AppImage"):
-        # Try filename first, then extract from file
-        version = extract_version_from_filename(appimage.name)
-        if not version:
-            version = extract_version_from_appimage(appimage)
+        version = extract_version_from_filename(appimage.name) or extract_version_from_appimage(appimage)
         if version:
             versions.append(version)
 
     if not versions:
         return None
 
-    sorted_versions = sort_versions(versions)
-    return sorted_versions[0]
+    return sort_versions(versions)[0]
+
+
+def get_desktop_file_exec() -> Optional[str]:
+    """Get the Exec path from the desktop file."""
+    if not DESKTOP_FILE.exists():
+        return None
+    
+    try:
+        with open(DESKTOP_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("Exec="):
+                    exec_line = line[5:].strip()
+                    return exec_line.split()[0] if exec_line.split() else exec_line
+    except OSError:
+        pass
+    
+    return None
+
+
+def get_launch_info() -> dict:
+    """Get information about how Cursor is launched."""
+    info = {
+        "running_from": None,
+        "desktop_file_exec": None,
+        "symlink_target": None,
+        "symlink_exists": False,
+        "in_path": False,
+    }
+    
+    running_path = get_running_cursor_path()
+    if running_path:
+        info["running_from"] = str(running_path.resolve())
+    
+    desktop_exec = get_desktop_file_exec()
+    if desktop_exec:
+        info["desktop_file_exec"] = desktop_exec
+    
+    if CURSOR_APPIMAGE.exists():
+        info["symlink_exists"] = True
+        if CURSOR_APPIMAGE.is_symlink():
+            try:
+                info["symlink_target"] = str(CURSOR_APPIMAGE.readlink().resolve())
+            except OSError:
+                pass
+    
+    local_bin = str(Path.home() / ".local" / "bin")
+    path_env = os.environ.get("PATH", "")
+    info["in_path"] = local_bin in path_env.split(":")
+    
+    return info
 
 
 def get_version_status() -> VersionInfo:

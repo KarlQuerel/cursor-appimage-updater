@@ -24,6 +24,7 @@ USER_AGENT = "Cursor-Updater/1.0"
 # ANSI color codes
 GREEN = "\033[32m"
 RED = "\033[31m"
+YELLOW = "\033[33m"
 NC = "\033[0m"
 BOLD = "\033[1m"
 BOLD_BLUE = "\033[1;34m"
@@ -33,6 +34,8 @@ VERSION_PATTERN = re.compile(r"cursor-([0-9.]+)\.AppImage")
 
 # UI settings
 ESC_KEY = 27
+PREFIX_WIDTH = 33
+DESKTOP_FILE = Path.home() / ".local" / "share" / "applications" / "cursor.desktop"
 
 # Menu options
 MENU_OPTIONS = {

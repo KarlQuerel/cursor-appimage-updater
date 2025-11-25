@@ -11,8 +11,9 @@ from cursor_updater.config import (
     CHUNK_SIZE,
     DOWNLOAD_TIMEOUT,
     USER_AGENT,
+    DESKTOP_FILE,
 )
-from cursor_updater.version import get_download_url
+from cursor_updater.version import get_download_url, get_running_cursor_path
 from cursor_updater.output import print_error, print_success, print_info
 
 
@@ -78,30 +79,56 @@ def download_version(version: str) -> bool:
         return True
 
     print_info(f"⬇️  Downloading {version}...")
-    if download_file(url, filepath):
-        print_success("Download complete")
-        return True
-    return False
+    if not download_file(url, filepath):
+        return False
+    
+    print_success("Download complete")
+    return True
 
 
 def create_symlink(target: Path, link: Path) -> bool:
     """Create a symlink, removing existing one if present."""
     link.parent.mkdir(parents=True, exist_ok=True)
 
-    if link.exists() or link.is_symlink():
-        if link.is_symlink():
-            link.unlink()
-        else:
-            # If it's a regular file, backup it first
-            backup_path = link.with_suffix(".AppImage.backup")
-            if backup_path.exists():
-                backup_path.unlink()
-            link.rename(backup_path)
-            print_info("Backed up existing Cursor AppImage")
+    if link.is_symlink():
+        link.unlink()
+    elif link.exists():
+        backup_path = link.with_suffix(".AppImage.backup")
+        if backup_path.exists():
+            backup_path.unlink()
+        link.rename(backup_path)
+        print_info("Backed up existing Cursor AppImage")
 
     try:
         link.symlink_to(target)
         return True
+    except OSError:
+        return False
+
+
+def update_desktop_file() -> bool:
+    """Update desktop file to point to ~/.local/bin/cursor.AppImage."""
+    if not DESKTOP_FILE.exists():
+        return False
+    
+    try:
+        with open(DESKTOP_FILE, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        
+        new_lines = []
+        updated = False
+        for line in lines:
+            if line.startswith("Exec="):
+                parts = line.strip().split()
+                args = " " + " ".join(parts[1:]) if len(parts) > 1 else ""
+                new_lines.append(f"Exec={CURSOR_APPIMAGE}{args}\n")
+                updated = True
+            else:
+                new_lines.append(line)
+        
+        if updated:
+            DESKTOP_FILE.write_text("".join(new_lines), encoding="utf-8")
+        return updated
     except OSError:
         return False
 
@@ -114,11 +141,19 @@ def select_version(version: str) -> bool:
         print_error(f"Version {version} not found locally")
         return False
 
-    if create_symlink(appimage_path, CURSOR_APPIMAGE):
-        print_success(
-            f"{version} is now the active Cursor version. Please restart Cursor to use it."
-        )
-        return True
+    if not create_symlink(appimage_path, CURSOR_APPIMAGE):
+        print_error(f"Failed to activate {version}")
+        return False
+    
+    update_desktop_file()
+    
+    running_path = get_running_cursor_path()
+    if running_path and running_path.resolve() != CURSOR_APPIMAGE.resolve():
+        if running_path.exists() and os.access(running_path.parent, os.W_OK):
+            try:
+                create_symlink(appimage_path, running_path)
+            except OSError:
+                pass
 
-    print_error(f"Failed to activate {version}")
-    return False
+    print_success(f"{version} is now active. Please restart Cursor to use the new version.")
+    return True
