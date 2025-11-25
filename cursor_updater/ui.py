@@ -17,6 +17,8 @@ from cursor_updater.config import (
     CURSOR_APPIMAGE,
     DOWNLOADS_DIR,
     PREFIX_WIDTH,
+    NC,
+    BOLD,
 )
 from cursor_updater.version import (
     VersionInfo,
@@ -63,21 +65,50 @@ def clear_screen() -> None:
 
 def print_header() -> None:
     """Print the application header."""
+    print()
     header_art = [
-        "   ▄▖▖▖▄▖▄▖▄▖▄▖  ▖▖▄▖▄ ▄▖▄▖▄▖▄▖",
-        "   ▌ ▌▌▙▘▚ ▌▌▙▘  ▌▌▙▌▌▌▌▌▐ ▙▖▙▘",
-        "   ▙▖▙▌▌▌▄▌▙▌▌▌  ▙▌▌ ▙▘▛▌▐ ▙▖▌▌",
+        "      ▄▖▖▖▄▖▄▖▄▖▄▖  ▖▖▄▖▄ ▄▖▄▖▄▖▄▖",
+        "      ▌ ▌▌▙▘▚ ▌▌▙▘  ▌▌▙▌▌▌▌▌▐ ▙▖▙▘",
+        "      ▙▖▙▌▌▌▄▌▙▌▌▌  ▙▌▌ ▙▘▛▌▐ ▙▖▌▌",
     ]
     for line in header_art:
         print(format_message(line, BOLD_BLUE))
     print()
 
 
+def draw_box_top(width: int) -> str:
+    """Draw top border of a retro pixel box."""
+    return "╔" + "═" * (width - 2) + "╗"
+
+
+def draw_box_bottom(width: int) -> str:
+    """Draw bottom border of a retro pixel box."""
+    return "╚" + "═" * (width - 2) + "╝"
+
+
+def draw_box_line(content: str, width: int) -> str:
+    """Draw a line inside a retro pixel box."""
+    padding = width - len(content) - 2
+    return "║" + content + " " * padding + "║"
+
+
+def _print_menu_line(line: str, width: int) -> None:
+    """Print a single menu line with borders."""
+    print(format_message("║", BOLD_BLUE), end="")
+    print(f"{BOLD} {line}{NC}", end="")
+    padding = width - len(line) - 3
+    print(" " * padding + format_message("║", BOLD_BLUE))
+
+
 def print_menu() -> None:
-    """Print the main menu."""
-    print()
-    for key, description in MENU_OPTIONS.items():
-        print(format_message(f"  {key}. {description}"))
+    """Print the main menu with retro pixel borders."""
+    menu_lines = [f"  {key}. {description}" for key, description in MENU_OPTIONS.items()]
+    width = max(len(line) for line in menu_lines) + 4
+    
+    print(format_message(draw_box_top(width), BOLD_BLUE))
+    for line in menu_lines:
+        _print_menu_line(line, width)
+    print(format_message(draw_box_bottom(width), BOLD_BLUE))
     print()
 
 
@@ -93,29 +124,53 @@ def exit_app(message: str = MSG_EXITING) -> None:
     sys.exit(0)
 
 
+def _print_info_line(label: str, value: str) -> None:
+    """Print a formatted info line with consistent spacing."""
+    print(format_message(f"{label:<{PREFIX_WIDTH}} {value}"))
+
+
 def print_version_info(info: VersionInfo) -> None:
     """Print version information."""
     print()
     print(format_message("Cursor App Information:"))
 
     if not info.latest_remote:
-        print(format_message(f"{'  - 📡 Latest remote version:':<{PREFIX_WIDTH}} (unavailable)"))
+        _print_info_line("  - 📡 Latest remote version:", "(unavailable)")
         return
-    print(
-        format_message(
-            f"{'  - 📡 Latest remote version:':<{PREFIX_WIDTH}} {info.latest_remote}"
-        )
-    )
-    print(
-        format_message(
-            f"{'  - 📂 Latest locally available:':<{PREFIX_WIDTH}} {info.latest_local or 'None'}"
-        )
-    )
-    print(
-        format_message(
-            f"{'  - ⚡ Currently active:':<{PREFIX_WIDTH}} {info.local or 'None'}"
-        )
-    )
+    
+    _print_info_line("  - 📡 Latest remote version:", info.latest_remote)
+    _print_info_line("  - 📂 Latest locally available:", info.latest_local or "None")
+    _print_info_line("  - ⚡ Currently active:", info.local or "None")
+
+
+def _print_label_value(label: str, value: str) -> None:
+    """Print a label and value on separate lines."""
+    print(format_message(label))
+    print(f"    {value}")
+
+
+def _print_warnings_and_tips(launch_info: dict) -> None:
+    """Print warnings and tips based on launch configuration."""
+    running_path = launch_info.get("running_from")
+    desktop_path = launch_info.get("desktop_file_exec")
+    
+    if running_path and desktop_path:
+        if Path(running_path).resolve() != Path(desktop_path).resolve():
+            print(format_message(
+                "⚠️  Warning: Running instance and desktop launcher point to different locations",
+                YELLOW
+            ))
+            print(format_message(
+                "   Restart Cursor to use the version specified in the desktop launcher."
+            ))
+            print()
+    
+    if not launch_info["in_path"]:
+        print(format_message(
+            "💡 Tip: Add ~/.local/bin to your PATH for command-line access",
+            YELLOW
+        ))
+        print()
 
 
 def print_launch_info() -> None:
@@ -124,58 +179,34 @@ def print_launch_info() -> None:
     
     print()
     print(format_message("Launch Configuration:", BOLD_BLUE))
+    print()
     
-    def _print_info_line(label: str, value: str, extra_spaces: int = 0) -> None:
-        """Helper to print formatted info line."""
-        spacing = " " * (1 + extra_spaces)
-        print(format_message(f"{label:<{PREFIX_WIDTH}}{spacing}{value}"))
+    print(format_message("  Runtime:"))
+    _print_label_value(
+        "  - 🚀 Running from:",
+        launch_info.get("running_from") or "(not running)"
+    )
+    print()
     
-    if launch_info["running_from"]:
-        _print_info_line("  - 🚀 Running from:", launch_info["running_from"])
-    else:
-        _print_info_line("  - 🚀 Running from:", "(not running)")
-    
-    if launch_info["desktop_file_exec"]:
-        _print_info_line("  - 🖥️  Desktop launcher:", launch_info["desktop_file_exec"], extra_spaces=2)
-    else:
-        _print_info_line("  - 🖥️  Desktop launcher:", "(not found)", extra_spaces=2)
+    print(format_message("  Configuration:"))
+    _print_label_value(
+        "  - 🖥️  Desktop launcher:",
+        launch_info.get("desktop_file_exec") or "(not found)"
+    )
     
     if launch_info["symlink_exists"]:
-        if launch_info["symlink_target"]:
-            _print_info_line("  - 🔗 Symlink target:", launch_info["symlink_target"])
-        else:
-            _print_info_line("  - 🔗 Symlink:", f"{CURSOR_APPIMAGE} (regular file)")
+        symlink_value = launch_info.get("symlink_target") or f"{CURSOR_APPIMAGE} (regular file)"
     else:
-        _print_info_line("  - 🔗 Symlink:", f"{CURSOR_APPIMAGE} (does not exist)")
-    
-    path_status = "✅ Yes" if launch_info["in_path"] else "❌ No"
-    _print_info_line("  - 📍 ~/.local/bin in PATH:", path_status)
-    
+        symlink_value = f"{CURSOR_APPIMAGE} (does not exist)"
+    _print_label_value("  - 🔗 Symlink:", symlink_value)
     print()
-    if launch_info["running_from"] and launch_info["desktop_file_exec"]:
-        running_path = Path(launch_info["running_from"])
-        desktop_path = Path(launch_info["desktop_file_exec"]).resolve()
-        
-        if running_path.resolve() != desktop_path.resolve():
-            print(
-                format_message(
-                    "⚠️  Warning: Running instance and desktop launcher point to different locations",
-                    YELLOW
-                )
-            )
-            print(
-                format_message(
-                    "   Restart Cursor to use the version specified in the desktop launcher."
-                )
-            )
     
-    if not launch_info["in_path"]:
-        print(
-            format_message(
-                "💡 Tip: Add ~/.local/bin to your PATH for command-line access",
-                YELLOW
-            )
-        )
+    print(format_message("  Environment:"))
+    path_status = "✅ Yes" if launch_info["in_path"] else "❌ No"
+    print(format_message(f"  - 📍 ~/.local/bin in PATH: {path_status}"))
+    print()
+    
+    _print_warnings_and_tips(launch_info)
 
 
 def get_update_status_message(info: VersionInfo) -> str:
@@ -191,7 +222,8 @@ def get_update_status_message(info: VersionInfo) -> str:
             YELLOW
         )
         if info.latest_local:
-            message += f"\n{format_message(f'   (You have {info.latest_local} locally, you can update to the latest version by pressing 2)')}"
+            local_note = f"   (You have {info.latest_local} locally, you can update to the latest version by pressing 2)"
+            message += f"\n{format_message(local_note)}"
         return message
 
     if info.latest_remote != info.local:
@@ -269,19 +301,15 @@ def show_help() -> None:
 
 def handle_menu_choice(choice: str) -> None:
     """Handle user menu choice."""
-    if choice == "1":
+    menu_actions = {
+        "1": check_versions,
+        "2": update_cursor,
+        "3": show_help,
+    }
+    
+    if choice in menu_actions:
         print()
-        check_versions()
-        print()
-        wait_for_key()
-    elif choice == "2":
-        print()
-        update_cursor()
-        print()
-        wait_for_key()
-    elif choice == "3":
-        print()
-        show_help()
+        menu_actions[choice]()
         print()
         wait_for_key()
     elif choice in ("q", "4"):
