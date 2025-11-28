@@ -24,7 +24,10 @@ from cursor_updater.config import (
     DOWNLOADS_DIR,
     CURSOR_APPIMAGE,
     DESKTOP_FILE,
+    CURSOR_APPIMAGE_PATTERNS,
+    CURSOR_VERSIONED_PATTERNS,
 )
+from cursor_updater.spinner import show_spinner
 
 
 @dataclass
@@ -119,13 +122,19 @@ def fetch_version_history() -> Optional[dict]:
         return None
 
 
+def _fetch_version_history_with_spinner() -> Optional[dict]:
+    """Fetch version history with spinner indicator."""
+    with show_spinner("Fetching version information"):
+        return fetch_version_history()
+
+
 def get_version_history() -> Optional[dict]:
     """Get version history from cache or remote."""
     cached = VersionHistoryCache.load()
     if cached:
         return cached
 
-    data = fetch_version_history()
+    data = _fetch_version_history_with_spinner()
     if data:
         VersionHistoryCache.save(data)
         return data
@@ -180,12 +189,12 @@ def get_download_url(version: str) -> Optional[str]:
 
 def _find_appimage_path_in_line(line: str) -> Optional[Path]:
     """Extract AppImage path from a process line."""
-    matches = re.findall(r'(/[^\s]+cursor[^\s]*\.AppImage)', line)
+    matches = re.findall(r"(/[^\s]+cursor[^\s]*\.AppImage)", line)
     for match in matches:
         path = Path(match)
         if path.exists():
             return path.resolve()
-    
+
     parts = line.split()
     for part in parts:
         if part.endswith(".AppImage") and "cursor" in part.lower():
@@ -266,7 +275,7 @@ def extract_version_from_appimage(appimage_path: Path) -> Optional[str]:
             timeout=10,
         )
         for line in result.stdout.splitlines():
-            if '"version"' in line and ':' in line:
+            if '"version"' in line and ":" in line:
                 match = re.search(r'"version"\s*:\s*"([0-9.]+)"', line)
                 if match:
                     return match.group(1)
@@ -280,42 +289,112 @@ def extract_version_from_appimage(appimage_path: Path) -> Optional[str]:
     return extract_version_from_filename(appimage_path.name)
 
 
+def _find_cursor_appimage_in_dir(directory: Path) -> Optional[Path]:
+    """Find cursor AppImage file in directory (case-insensitive)."""
+    if not directory.exists():
+        return None
+
+    # Check exact path first (case-sensitive)
+    if CURSOR_APPIMAGE.exists() and CURSOR_APPIMAGE.parent == directory:
+        return CURSOR_APPIMAGE
+
+    # Case-insensitive search using glob patterns
+    for pattern in CURSOR_APPIMAGE_PATTERNS:
+        matches = [f for f in directory.glob(pattern) if f.is_file()]
+        if matches:
+            # Prefer exact match (case-insensitive)
+            for match in matches:
+                if match.name.lower() == "cursor.appimage":
+                    return match
+            return matches[0]
+
+    return None
+
+
+def _get_version_from_path(appimage_path: Path) -> Optional[str]:
+    """Extract version from an AppImage path if it exists."""
+    if not appimage_path.exists():
+        return None
+    return extract_version_from_appimage(appimage_path)
+
+
+def _collect_versions_from_directory(directory: Path) -> list[str]:
+    """Collect all versions from AppImage files in a directory (deduplicated)."""
+    if not directory.exists():
+        return []
+
+    versions = set()
+    seen_files = set()
+
+    for pattern in CURSOR_VERSIONED_PATTERNS:
+        for appimage in directory.glob(pattern):
+            # Avoid processing the same file multiple times (case variations)
+            file_key = appimage.resolve()
+            if file_key in seen_files:
+                continue
+            seen_files.add(file_key)
+
+            version = extract_version_from_filename(
+                appimage.name
+            ) or extract_version_from_appimage(appimage)
+            if version:
+                versions.add(version)
+
+    return list(versions)
+
+
 def get_local_version() -> Optional[str]:
     """Get currently active local version from the actual Cursor AppImage."""
+    # Priority 1: Check running process
     running_path = get_running_cursor_path()
-    if running_path:
-        if version := extract_version_from_appimage(running_path):
-            return version
+    if running_path and (version := _get_version_from_path(running_path)):
+        return version
 
-    if CURSOR_APPIMAGE.exists():
-        if version := extract_version_from_appimage(CURSOR_APPIMAGE):
-            return version
+    # Priority 2: Check desktop file Exec path
+    desktop_exec = get_desktop_file_exec()
+    if desktop_exec and (version := _get_version_from_path(Path(desktop_exec))):
+        return version
+
+    # Priority 3: Check standard location (case-insensitive)
+    local_bin = CURSOR_APPIMAGE.parent
+    appimage_path = _find_cursor_appimage_in_dir(local_bin)
+    if appimage_path and (version := _get_version_from_path(appimage_path)):
+        return version
 
     return None
 
 
 def get_latest_local_version() -> Optional[str]:
-    """Get latest locally available version from downloads directory."""
-    if not DOWNLOADS_DIR.exists():
-        return None
+    """Get latest locally available version from downloads directory and installation location."""
+    versions = set()
 
-    versions = []
-    for appimage in DOWNLOADS_DIR.glob("cursor-*.AppImage"):
-        version = extract_version_from_filename(appimage.name) or extract_version_from_appimage(appimage)
-        if version:
-            versions.append(version)
+    # Check downloads directory (case-insensitive)
+    versions.update(_collect_versions_from_directory(DOWNLOADS_DIR))
+
+    # Check actual installation location
+    local_bin = CURSOR_APPIMAGE.parent
+    if local_bin.exists():
+        # Check desktop file Exec path
+        desktop_exec = get_desktop_file_exec()
+        if desktop_exec and (version := _get_version_from_path(Path(desktop_exec))):
+            versions.add(version)
+
+        # Check for any cursor appimage in ~/.local/bin
+        appimage_path = _find_cursor_appimage_in_dir(local_bin)
+        if appimage_path and (version := _get_version_from_path(appimage_path)):
+            versions.add(version)
 
     if not versions:
         return None
 
-    return sort_versions(versions)[0]
+    return sort_versions(list(versions))[0]
 
 
 def get_desktop_file_exec() -> Optional[str]:
     """Get the Exec path from the desktop file."""
     if not DESKTOP_FILE.exists():
         return None
-    
+
     try:
         with open(DESKTOP_FILE, "r", encoding="utf-8") as f:
             for line in f:
@@ -324,7 +403,7 @@ def get_desktop_file_exec() -> Optional[str]:
                     return exec_line.split()[0] if exec_line.split() else exec_line
     except OSError:
         pass
-    
+
     return None
 
 
@@ -335,29 +414,34 @@ def get_launch_info() -> dict:
         "desktop_file_exec": None,
         "symlink_target": None,
         "symlink_exists": False,
+        "symlink_path": None,
         "in_path": False,
     }
-    
+
     running_path = get_running_cursor_path()
     if running_path:
         info["running_from"] = str(running_path.resolve())
-    
+
     desktop_exec = get_desktop_file_exec()
     if desktop_exec:
         info["desktop_file_exec"] = desktop_exec
-    
-    if CURSOR_APPIMAGE.exists():
+
+    # Check for cursor appimage (case-insensitive)
+    local_bin = CURSOR_APPIMAGE.parent
+    appimage_path = _find_cursor_appimage_in_dir(local_bin)
+    if appimage_path:
         info["symlink_exists"] = True
-        if CURSOR_APPIMAGE.is_symlink():
+        info["symlink_path"] = str(appimage_path)
+        if appimage_path.is_symlink():
             try:
-                info["symlink_target"] = str(CURSOR_APPIMAGE.readlink().resolve())
+                info["symlink_target"] = str(appimage_path.readlink().resolve())
             except OSError:
                 pass
-    
-    local_bin = str(Path.home() / ".local" / "bin")
+
+    local_bin_str = str(Path.home() / ".local" / "bin")
     path_env = os.environ.get("PATH", "")
-    info["in_path"] = local_bin in path_env.split(":")
-    
+    info["in_path"] = local_bin_str in path_env.split(":")
+
     return info
 
 

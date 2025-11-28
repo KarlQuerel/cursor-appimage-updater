@@ -30,7 +30,11 @@ BOLD = "\033[1m"
 BOLD_BLUE = "\033[1;34m"
 
 # Patterns
-VERSION_PATTERN = re.compile(r"cursor-([0-9.]+)\.AppImage")
+VERSION_PATTERN = re.compile(r"cursor-([0-9.]+)\.AppImage", re.IGNORECASE)
+
+# Case-insensitive glob patterns for finding cursor AppImages
+CURSOR_APPIMAGE_PATTERNS = ["cursor*.AppImage", "cursor*.appimage", "cursor*.APPIMAGE"]
+CURSOR_VERSIONED_PATTERNS = ["cursor-*.AppImage", "cursor-*.appimage", "cursor-*.APPIMAGE"]
 
 # UI settings
 ESC_KEY = 27

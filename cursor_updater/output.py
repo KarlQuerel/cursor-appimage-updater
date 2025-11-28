@@ -1,24 +1,43 @@
-"""Output formatting and printing utilities."""
+"""Output formatting and printing utilities.
+
+Everything is bold and gets 2-space indenting by default.
+"""
 
 from cursor_updater.config import BOLD, GREEN, RED, NC
 
 
+def _ensure_indent(message: str) -> str:
+    """Ensure message has 2-space indent (if it doesn't already have 2+ spaces)."""
+    if len(message) >= 2 and message[:2] == "  ":
+        return message
+    return f"  {message.lstrip()}"
+
+
 def format_message(message: str, color: str = "") -> str:
-    """Format a message with color and bold."""
+    """Format message: always bold, always 2-space indent."""
+    return f"{BOLD}{color}{_ensure_indent(message)}{NC}"
+
+
+def format_unindented(message: str, color: str = "") -> str:
+    """Format message: always bold, no indent (for headers/boxes)."""
     return f"{BOLD}{color}{message}{NC}"
 
 
+def print_bold(message: str, end: str = "\n", flush: bool = False) -> None:
+    """Print message in bold with 2-space indent."""
+    print(format_message(message), end=end, flush=flush)
+
+
 def print_error(message: str) -> None:
-    """Print an error message in red and bold."""
+    """Print error message in red and bold with 2-space indent."""
     print(format_message(f"❌ {message}", RED))
 
 
 def print_success(message: str) -> None:
-    """Print a success message in green and bold."""
+    """Print success message in green and bold with 2-space indent."""
     print(format_message(f"✅ {message}", GREEN))
 
 
 def print_info(message: str) -> None:
-    """Print an info message in bold."""
+    """Print info message in bold with 2-space indent."""
     print(format_message(message))
-

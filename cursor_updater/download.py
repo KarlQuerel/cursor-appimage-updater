@@ -12,6 +12,7 @@ from cursor_updater.config import (
     DOWNLOAD_TIMEOUT,
     USER_AGENT,
     DESKTOP_FILE,
+    CURSOR_APPIMAGE_PATTERNS,
 )
 from cursor_updater.version import get_download_url, get_running_cursor_path
 from cursor_updater.output import print_error, print_success, print_info
@@ -81,23 +82,47 @@ def download_version(version: str) -> bool:
     print_info(f"⬇️  Downloading {version}...")
     if not download_file(url, filepath):
         return False
-    
+
     print_success("Download complete")
     return True
+
+
+def _backup_existing_file(file_path: Path) -> None:
+    """Backup an existing file by renaming it."""
+    backup_path = file_path.with_suffix(".AppImage.backup")
+    if backup_path.exists():
+        backup_path.unlink()
+    file_path.rename(backup_path)
+    print_info("Backed up existing Cursor AppImage")
+
+
+def _remove_case_variants(link: Path) -> None:
+    """Remove any existing cursor appimage files with different case."""
+    for pattern in CURSOR_APPIMAGE_PATTERNS:
+        for existing_file in link.parent.glob(pattern):
+            if (
+                existing_file.name.lower() == "cursor.appimage"
+                and existing_file != link
+            ):
+                if existing_file.is_symlink():
+                    existing_file.unlink()
+                elif existing_file.exists():
+                    _backup_existing_file(existing_file)
+                return  # Only handle one variant
 
 
 def create_symlink(target: Path, link: Path) -> bool:
     """Create a symlink, removing existing one if present."""
     link.parent.mkdir(parents=True, exist_ok=True)
 
+    # Remove any existing cursor appimage files with different case
+    _remove_case_variants(link)
+
+    # Remove the target link if it exists
     if link.is_symlink():
         link.unlink()
     elif link.exists():
-        backup_path = link.with_suffix(".AppImage.backup")
-        if backup_path.exists():
-            backup_path.unlink()
-        link.rename(backup_path)
-        print_info("Backed up existing Cursor AppImage")
+        _backup_existing_file(link)
 
     try:
         link.symlink_to(target)
@@ -110,11 +135,11 @@ def update_desktop_file() -> bool:
     """Update desktop file to point to ~/.local/bin/cursor.AppImage."""
     if not DESKTOP_FILE.exists():
         return False
-    
+
     try:
         with open(DESKTOP_FILE, "r", encoding="utf-8") as f:
             lines = f.readlines()
-        
+
         new_lines = []
         updated = False
         for line in lines:
@@ -125,7 +150,7 @@ def update_desktop_file() -> bool:
                 updated = True
             else:
                 new_lines.append(line)
-        
+
         if updated:
             DESKTOP_FILE.write_text("".join(new_lines), encoding="utf-8")
         return updated
@@ -133,7 +158,7 @@ def update_desktop_file() -> bool:
         return False
 
 
-def select_version(version: str) -> bool:
+def select_version(version: str, show_success: bool = True) -> bool:
     """Select a version by creating symlink."""
     appimage_path = get_appimage_path(version)
 
@@ -144,9 +169,9 @@ def select_version(version: str) -> bool:
     if not create_symlink(appimage_path, CURSOR_APPIMAGE):
         print_error(f"Failed to activate {version}")
         return False
-    
+
     update_desktop_file()
-    
+
     running_path = get_running_cursor_path()
     if running_path and running_path.resolve() != CURSOR_APPIMAGE.resolve():
         if running_path.exists() and os.access(running_path.parent, os.W_OK):
@@ -155,5 +180,8 @@ def select_version(version: str) -> bool:
             except OSError:
                 pass
 
-    print_success(f"{version} is now active. Please restart Cursor to use the new version.")
+    if show_success:
+        print_success(
+            f"{version} is now active. Please restart Cursor to use the new version."
+        )
     return True

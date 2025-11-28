@@ -28,7 +28,14 @@ from cursor_updater.version import (
     get_launch_info,
 )
 from cursor_updater.download import download_version, select_version
-from cursor_updater.output import format_message, print_error
+from cursor_updater.output import (
+    format_message,
+    format_unindented,
+    print_error,
+    print_success,
+    print_bold,
+)
+from cursor_updater.spinner import show_spinner
 
 
 def getch() -> str:
@@ -72,7 +79,7 @@ def print_header() -> None:
         "      ▙▖▙▌▌▌▄▌▙▌▌▌  ▙▌▌ ▙▘▛▌▐ ▙▖▌▌",
     ]
     for line in header_art:
-        print(format_message(line, BOLD_BLUE))
+        print(format_unindented(line, BOLD_BLUE))
     print()
 
 
@@ -86,29 +93,28 @@ def draw_box_bottom(width: int) -> str:
     return "╚" + "═" * (width - 2) + "╝"
 
 
-def draw_box_line(content: str, width: int) -> str:
-    """Draw a line inside a retro pixel box."""
-    padding = width - len(content) - 2
-    return "║" + content + " " * padding + "║"
-
-
 def _print_menu_line(line: str, width: int) -> None:
-    """Print a single menu line with borders."""
-    print(format_message("║", BOLD_BLUE), end="")
-    print(f"{BOLD} {line}{NC}", end="")
-    padding = width - len(line) - 3
-    print(" " * padding + format_message("║", BOLD_BLUE))
+    """Print a single menu line with borders, centered."""
+    total_padding = width - len(line) - 2  # -2 for borders
+    left_padding = 1
+    right_padding = total_padding - left_padding
+
+    print(format_unindented("║", BOLD_BLUE), end="")
+    print(f"{BOLD}{' ' * left_padding}{line}{' ' * right_padding}{NC}", end="")
+    print(format_unindented("║", BOLD_BLUE))
 
 
 def print_menu() -> None:
     """Print the main menu with retro pixel borders."""
-    menu_lines = [f"  {key}. {description}" for key, description in MENU_OPTIONS.items()]
-    width = max(len(line) for line in menu_lines) + 4
-    
-    print(format_message(draw_box_top(width), BOLD_BLUE))
+    menu_lines = [
+        f"  {key}. {description}" for key, description in MENU_OPTIONS.items()
+    ]
+    width = max(len(line) for line in menu_lines) + 8
+
+    print(format_unindented(draw_box_top(width), BOLD_BLUE))
     for line in menu_lines:
         _print_menu_line(line, width)
-    print(format_message(draw_box_bottom(width), BOLD_BLUE))
+    print(format_unindented(draw_box_bottom(width), BOLD_BLUE))
     print()
 
 
@@ -137,75 +143,82 @@ def print_version_info(info: VersionInfo) -> None:
     if not info.latest_remote:
         _print_info_line("  - 📡 Latest remote version:", "(unavailable)")
         return
-    
+
     _print_info_line("  - 📡 Latest remote version:", info.latest_remote)
     _print_info_line("  - 📂 Latest locally available:", info.latest_local or "None")
     _print_info_line("  - ⚡ Currently active:", info.local or "None")
 
 
 def _print_label_value(label: str, value: str) -> None:
-    """Print a label and value on separate lines."""
+    """Print a label and value on separate lines with proper indentation."""
     print(format_message(label))
-    print(f"    {value}")
+    print(format_message(f"    {value.lstrip()}"))
 
 
 def _print_warnings_and_tips(launch_info: dict) -> None:
     """Print warnings and tips based on launch configuration."""
     running_path = launch_info.get("running_from")
     desktop_path = launch_info.get("desktop_file_exec")
-    
+
     if running_path and desktop_path:
         if Path(running_path).resolve() != Path(desktop_path).resolve():
-            print(format_message(
-                "⚠️  Warning: Running instance and desktop launcher point to different locations",
-                YELLOW
-            ))
-            print(format_message(
-                "   Restart Cursor to use the version specified in the desktop launcher."
-            ))
+            print(
+                format_message(
+                    "⚠️  Warning: Running instance and desktop launcher point to different locations",
+                    YELLOW,
+                )
+            )
+            print(
+                format_message(
+                    "   Restart Cursor to use the version specified in the desktop launcher."
+                )
+            )
             print()
-    
+
     if not launch_info["in_path"]:
-        print(format_message(
-            "💡 Tip: Add ~/.local/bin to your PATH for command-line access",
-            YELLOW
-        ))
+        print(
+            format_message(
+                "💡 Tip: Add ~/.local/bin to your PATH for command-line access", YELLOW
+            )
+        )
         print()
 
 
 def print_launch_info() -> None:
     """Print information about how Cursor is launched."""
     launch_info = get_launch_info()
-    
+
     print()
     print(format_message("Launch Configuration:", BOLD_BLUE))
     print()
-    
+
     print(format_message("  Runtime:"))
     _print_label_value(
-        "  - 🚀 Running from:",
-        launch_info.get("running_from") or "(not running)"
+        "  - 🚀 Running from:", launch_info.get("running_from") or "(not running)"
     )
     print()
-    
+
     print(format_message("  Configuration:"))
     _print_label_value(
         "  - 🖥️  Desktop launcher:",
-        launch_info.get("desktop_file_exec") or "(not found)"
+        launch_info.get("desktop_file_exec") or "(not found)",
     )
-    
+
     if launch_info["symlink_exists"]:
-        symlink_value = launch_info.get("symlink_target") or f"{CURSOR_APPIMAGE} (regular file)"
+        symlink_path = launch_info.get("symlink_path") or str(CURSOR_APPIMAGE)
+        symlink_value = (
+            launch_info.get("symlink_target") or f"{symlink_path} (regular file)"
+        )
     else:
         symlink_value = f"{CURSOR_APPIMAGE} (does not exist)"
     _print_label_value("  - 🔗 Symlink:", symlink_value)
     print()
-    
+
     print(format_message("  Environment:"))
     path_status = "✅ Yes" if launch_info["in_path"] else "❌ No"
     print(format_message(f"  - 📍 ~/.local/bin in PATH: {path_status}"))
     print()
-    
+
     _print_warnings_and_tips(launch_info)
 
 
@@ -219,7 +232,7 @@ def get_update_status_message(info: VersionInfo) -> str:
     if info.latest_remote != info.latest_local:
         message = format_message(
             f"🔍 There is a newer Cursor version available for download: {info.latest_remote}",
-            YELLOW
+            YELLOW,
         )
         if info.latest_local:
             local_note = f"   (You have {info.latest_local} locally, you can update to the latest version by pressing 2)"
@@ -229,7 +242,7 @@ def get_update_status_message(info: VersionInfo) -> str:
     if info.latest_remote != info.local:
         return format_message(
             f"🔄 There is a newer version available locally: {info.latest_local}",
-            YELLOW
+            YELLOW,
         )
 
     return format_message("✅ You are running the latest Cursor version!", GREEN)
@@ -237,29 +250,42 @@ def get_update_status_message(info: VersionInfo) -> str:
 
 def check_versions() -> None:
     """Check local vs remote versions."""
-    info = get_version_status()
+    with show_spinner("Checking versions"):
+        info = get_version_status()
+
     print_version_info(info)
 
     if info.latest_remote:
         print(get_update_status_message(info))
-    
+
     print_launch_info()
 
 
 def update_cursor() -> bool:
     """Update Cursor to latest version."""
-    latest_remote = get_latest_remote_version()
+    with show_spinner("Checking for updates"):
+        latest_remote = get_latest_remote_version()
 
     if not latest_remote:
         print_error("Could not determine latest version")
         return False
 
-    latest_local = get_latest_local_version()
+    with show_spinner("Checking local versions"):
+        latest_local = get_latest_local_version()
+
     if latest_remote != latest_local:
         if not download_version(latest_remote):
             return False
 
-    return select_version(latest_remote)
+    with show_spinner("Activating version"):
+        success = select_version(latest_remote, show_success=False)
+
+    if success:
+        print_success(
+            f"{latest_remote} is now active. Please restart Cursor to use the new version."
+        )
+
+    return success
 
 
 def show_help() -> None:
@@ -267,35 +293,39 @@ def show_help() -> None:
     print()
     print(format_message("📖 Help & Information", BOLD_BLUE))
     print()
+    print()
 
     print(format_message("Menu Options:"))
-    print("  1. Check Current Setup Information")
-    print("     - Shows version info (current, latest local, latest remote)")
-    print("     - Displays launch configuration and update status")
     print()
-    print("  2. Update Cursor to latest version")
-    print("     - Downloads latest version if needed")
-    print("     - Updates symlink and desktop launcher")
-    print("     - Restart Cursor manually to use the new version")
+    print_bold("1. Check Current Setup Information")
+    print_bold("   - Shows version info (current, latest local, latest remote)")
+    print_bold("   - Displays launch configuration and update status")
     print()
-    print("  3. Help")
-    print("     - Shows this help information")
+    print_bold("2. Update Cursor to latest version")
+    print_bold("   - Downloads latest version if needed")
+    print_bold("   - Updates symlink and desktop launcher")
+    print_bold("   - Restart Cursor manually to use the new version")
     print()
-    print("  4. Exit")
-    print("     - Exits the application")
+    print_bold("3. Help")
+    print_bold("   - Shows this help information")
+    print()
+    print_bold("4. Exit")
+    print_bold("   - Exits the application")
     print()
 
     print(format_message("How it works:"))
-    print(f"  • Active installation: {CURSOR_APPIMAGE}")
-    print(f"  • Downloads stored in: {DOWNLOADS_DIR}")
-    print("  • Uses symlinks to manage versions efficiently")
-    print("  • Version cache: 15 minutes (auto-refreshes)")
+    print()
+    print_bold(f"• Active installation: {CURSOR_APPIMAGE}")
+    print_bold(f"• Downloads stored in: {DOWNLOADS_DIR}")
+    print_bold("• Uses symlinks to manage versions efficiently")
+    print_bold("• Version cache: 15 minutes (auto-refreshes)")
     print()
 
     print(format_message("Tips:"))
-    print("  • Press ESC to exit anytime")
-    print("  • Ensure ~/.local/bin is in your PATH for command-line access")
-    print("  • Desktop launcher is automatically updated to use managed version")
+    print()
+    print_bold("• Press ESC to exit anytime")
+    print_bold("• Ensure ~/.local/bin is in your PATH for command-line access")
+    print_bold("• Desktop launcher is automatically updated to use managed version")
     print()
 
 
@@ -306,7 +336,7 @@ def handle_menu_choice(choice: str) -> None:
         "2": update_cursor,
         "3": show_help,
     }
-    
+
     if choice in menu_actions:
         print()
         menu_actions[choice]()
